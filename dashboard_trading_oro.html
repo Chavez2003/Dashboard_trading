@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de Trading · Oro (XAUUSD)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg: #0B0D10;
+    --bg-card: #14171C;
+    --bg-card-2: #191D24;
+    --line: #262B33;
+    --gold: #C9A227;
+    --gold-soft: rgba(201,162,39,.14);
+    --text: #EDEDED;
+    --text-dim: #8A8F98;
+    --pos: #3FB27F;
+    --pos-soft: rgba(63,178,127,.16);
+    --neg: #E5484D;
+    --neg-soft: rgba(229,72,77,.16);
+    --neutral: #3A4048;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:22px 18px 60px;}
+
+  /* Header */
+  .top{
+    display:flex; justify-content:space-between; align-items:flex-end;
+    gap:16px; flex-wrap:wrap; margin-bottom:20px; padding-bottom:16px;
+    border-bottom:1px solid var(--line);
+  }
+  .top .eyebrow{ color:var(--gold); font-size:11px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; margin-bottom:4px;}
+  .top h1{ margin:0; font-size:22px; font-weight:700; letter-spacing:-.01em;}
+  .top .sub{ color:var(--text-dim); font-size:13px; margin-top:4px;}
+  .top-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+
+  button, .file-btn{
+    font-family:var(--sans); font-size:13px; font-weight:600; cursor:pointer;
+    border-radius:8px; padding:9px 14px; border:1px solid var(--line);
+    background:var(--bg-card); color:var(--text); transition:.15s border-color, .15s background;
+  }
+  button:hover, .file-btn:hover{ border-color:var(--gold); }
+  .btn-gold{ background:var(--gold); color:#141414; border-color:var(--gold); }
+  .btn-gold:hover{ filter:brightness(1.08); }
+  .btn-ghost{ background:transparent; }
+  input[type=file]{ display:none; }
+  input[type=number]{
+    font-family:var(--mono); font-size:13px; background:var(--bg-card-2); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:130px;
+  }
+  .capital-input-wrap{ position:relative; display:inline-flex; align-items:center; }
+  .capital-input-wrap .dollar-prefix{
+    position:absolute; left:11px; color:var(--text-dim); font-family:var(--mono); font-size:13px; pointer-events:none;
+  }
+  .capital-input-wrap input[type=number]{ padding-left:22px; }
+  input[type=number]:focus, select:focus{ outline:2px solid var(--gold-soft); border-color:var(--gold); }
+  select{
+    font-family:var(--sans); font-size:12px; background:var(--bg-card-2); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:7px 8px;
+  }
+
+  /* Capital row */
+  .capital-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .capital-row label{ font-size:12px; color:var(--text-dim); }
+
+  /* Status */
+  #status{ font-size:12px; color:var(--text-dim); margin-top:8px; min-height:16px;}
+  #status.err{ color:var(--neg); }
+  #status.ok{ color:var(--pos); }
+
+  /* Empty state */
+  .empty{
+    border:1px dashed var(--line); border-radius:var(--radius); padding:48px 24px;
+    text-align:center; color:var(--text-dim); margin-top:8px;
+  }
+  .empty b{ color:var(--text); }
+
+  details.howto{ margin-top:14px; }
+  details.howto summary{ cursor:pointer; font-size:12.5px; color:var(--gold); user-select:none; }
+  details.howto .steps{
+    margin-top:10px; font-size:13px; color:var(--text-dim); line-height:1.7;
+    background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 18px;
+  }
+  details.howto ol{ margin:6px 0 0 18px; padding:0; }
+  details.howto code{ background:var(--bg-card-2); padding:1px 6px; border-radius:4px; color:var(--gold); font-family:var(--mono); font-size:12px;}
+
+  /* Sections */
+  #dashboard{ display:none; margin-top:24px; }
+  .section-title{ font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin:30px 0 12px; }
+
+  .view-tabs{ display:flex; gap:8px; margin-top:22px; border-bottom:1px solid var(--line); padding-bottom:0; }
+  .view-tabs button{
+    background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0;
+    padding:10px 4px; margin-right:18px; font-size:13.5px; color:var(--text-dim); font-weight:600;
+  }
+  .view-tabs button:hover{ color:var(--text); border-color:var(--line); }
+  .view-tabs button.active{ color:var(--gold); border-color:var(--gold); background:transparent; }
+
+  /* KPIs */
+  .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:12px; }
+  .kpi-card{
+    background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px;
+    position:relative; overflow:hidden;
+  }
+  .kpi-card::before{ content:""; position:absolute; top:0; left:0; width:3px; height:100%; background:var(--gold); opacity:.6; }
+  .kpi-label{ font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
+  .kpi-value{ font-family:var(--mono); font-size:24px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .kpi-value.pos{ color:var(--pos); }
+  .kpi-value.neg{ color:var(--neg); }
+  .kpi-foot{ font-size:11.5px; color:var(--text-dim); margin-top:4px; }
+
+  /* Calendar */
+  .cal-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; }
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .cal-head .month-label{ font-family:var(--mono); font-size:14px; font-weight:600; letter-spacing:.02em; text-transform:capitalize; }
+  .cal-nav{ display:flex; gap:6px; }
+  .cal-nav button{ padding:6px 10px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .cal-dow{ text-align:center; font-size:10.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; padding-bottom:4px; }
+  .cal-cell{
+    aspect-ratio:1/1; border-radius:8px; padding:6px 7px; position:relative;
+    background:var(--bg-card-2); border:1px solid var(--line); display:flex; flex-direction:column; justify-content:space-between;
+    min-height:64px; cursor:pointer; transition:.12s transform, .12s border-color;
+  }
+  .cal-cell:hover{ border-color:var(--gold); transform:translateY(-1px); }
+  .cal-cell.empty-day{ background:transparent; border-color:transparent; cursor:default; }
+  .cal-cell.empty-day:hover{ transform:none; border-color:transparent; }
+  .cal-cell.pos{ background:var(--pos-soft); border-color:rgba(63,178,127,.35); }
+  .cal-cell.neg{ background:var(--neg-soft); border-color:rgba(229,72,77,.35); }
+  .cal-cell .wick{ position:absolute; top:0; left:10px; width:2px; height:9px; border-radius:2px; }
+  .cal-cell.pos .wick{ background:var(--pos); }
+  .cal-cell.neg .wick{ background:var(--neg); }
+  .cal-daynum{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .cal-amt{ font-family:var(--mono); font-size:12.5px; font-weight:700; }
+  .cal-cell.pos .cal-amt{ color:var(--pos); }
+  .cal-cell.neg .cal-amt{ color:var(--neg); }
+  .cal-wr{ font-size:9.5px; color:var(--text-dim); }
+  .cal-summary{ display:flex; gap:22px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); flex-wrap:wrap; }
+  .cal-summary div{ font-size:12px; color:var(--text-dim); }
+  .cal-summary b{ font-family:var(--mono); color:var(--text); font-size:13px; }
+
+  /* Charts */
+  .chart-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; }
+  .chart-card h3{ margin:0 0 4px; font-size:13.5px; font-weight:600; }
+  .chart-card .hint{ font-size:11.5px; color:var(--text-dim); margin-bottom:12px; }
+  .tabs{ display:flex; gap:6px; margin-bottom:12px; }
+  .tabs button{ padding:6px 12px; font-size:12px; }
+  .tabs button.active{ background:var(--gold); color:#141414; border-color:var(--gold); }
+  .chart-wrap{ position:relative; }
+  .two-col{ display:grid; grid-template-columns:1fr; gap:16px; }
+
+  /* Table */
+  .table-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; overflow-x:auto; }
+  table.trades{ width:100%; border-collapse:collapse; font-size:12.5px; font-family:var(--mono); }
+  table.trades th{ text-align:left; padding:8px 10px; color:var(--text-dim); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--line); cursor:pointer; white-space:nowrap; }
+  table.trades th:hover{ color:var(--gold); }
+  table.trades td{ padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  table.trades td.pos{ color:var(--pos); }
+  table.trades td.neg{ color:var(--neg); }
+  .pager{ display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:12px; color:var(--text-dim); }
+  .pager button{ padding:5px 10px; }
+
+  footer{ margin-top:40px; text-align:center; color:var(--text-dim); font-size:11.5px; }
+
+  @media (min-width:820px){ .two-col{ grid-template-columns: 1.2fr 1fr; } }
+  @media print{ button, .top-actions, details{ display:none; } body{ background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <div class="eyebrow">XAUUSD · MetaTrader 5</div>
+      <h1>Panel de Trading — Oro</h1>
+      <div class="sub">Sube tu historial exportado de MT5 para ver rentabilidad, win rate y distribución de resultados.</div>
+    </div>
+    <div class="top-actions">
+      <div class="capital-row">
+        <label for="capitalInput">Capital (Balance + Crédito)</label>
+        <span class="capital-input-wrap">
+          <span class="dollar-prefix">$</span>
+          <input type="number" id="capitalInput" value="100" step="0.01" min="0">
+        </span>
+        <span style="font-size:11px;color:var(--text-dim);">usa el "Balance" de la barra de estado del terminal, no el total del panel Historial</span>
+      </div>
+      <label class="file-btn btn-gold">
+        Subir historial
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+      </label>
+      <button class="btn-ghost" id="clearBtn" title="Borra los datos guardados en este navegador">Borrar datos</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="emptyState" class="empty">
+    <b>Todavía no hay datos cargados.</b><br>
+    Exporta tu historial desde MetaTrader 5 (formato Excel o CSV) y súbelo con el botón "Subir historial".
+  </div>
+
+  <details class="howto">
+    <summary>¿Cómo descargo mi historial desde MetaTrader 5?</summary>
+    <div class="steps">
+      <ol>
+        <li>En MT5, abre la ventana <b>Terminal</b> (atajo <code>Ctrl+T</code>) y ubica la pestaña <b>Historial</b> en la parte inferior — es la que ya tienes abierta en tu terminal.</li>
+        <li>Haz clic derecho dentro de la lista y elige el período que quieres exportar (recomendado: <b>Todo el historial</b>, o <b>Periodo personalizado</b> si solo quieres un rango de fechas).</li>
+        <li>Vuelve a hacer clic derecho sobre la lista y selecciona <b>"Guardar como informe"</b>.</li>
+        <li>Cuando te pregunte el formato, elige <b>Excel (XLSX)</b> — así este panel puede leerlo directamente. Si solo tienes la opción HTML, ábrelo en Excel y guárdalo como <code>.xlsx</code> o <code>.csv</code> antes de subirlo aquí.</li>
+        <li>Sube ese archivo con el botón <b>"Subir historial"</b> arriba. Cada vez que quieras actualizar el panel, repite el proceso con el historial más reciente — el archivo nuevo reemplaza al anterior.</li>
+      </ol>
+    </div>
+  </details>
+
+  <div id="dashboard">
+
+    <div class="view-tabs" id="viewTabs">
+      <button data-view="resumen" class="active">Resumen general</button>
+      <button data-view="detalles">Detalles</button>
+      <button data-view="dia">Detalle diario</button>
+    </div>
+
+    <div id="view-resumen" class="view-panel">
+
+      <div class="section-title">Resumen</div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Ganancia total</div>
+          <div class="kpi-value" id="kpiProfit">$0.00</div>
+          <div class="kpi-foot" id="kpiProfitFoot">&nbsp;</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Win rate general</div>
+          <div class="kpi-value" id="kpiWinRate">0%</div>
+          <div class="kpi-foot" id="kpiWinRateFoot">&nbsp;</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Rentabilidad (ROI sobre capital)</div>
+          <div class="kpi-value" id="kpiRoi">0%</div>
+          <div class="kpi-foot" id="kpiRoiFoot">&nbsp;</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Operaciones cerradas</div>
+          <div class="kpi-value" id="kpiTrades">0</div>
+          <div class="kpi-foot" id="kpiTradesFoot">&nbsp;</div>
+        </div>
+      </div>
+
+      <div class="section-title">Calendario diario</div>
+      <div class="cal-card">
+        <div class="cal-head">
+          <div class="month-label" id="monthLabel">—</div>
+          <div class="cal-nav">
+            <button id="prevMonth">◀</button>
+            <button id="todayMonth">Hoy</button>
+            <button id="nextMonth">▶</button>
+          </div>
+        </div>
+        <div class="hint" style="margin-bottom:10px;">Haz clic en un día para ver su detalle en la pestaña "Detalle diario".</div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="cal-summary">
+          <div>Resultado del mes <br><b id="calMonthProfit">$0.00</b></div>
+          <div>Días ganadores <br><b id="calWinDays">0</b></div>
+          <div>Días perdedores <br><b id="calLossDays">0</b></div>
+          <div>Win rate del mes <br><b id="calMonthWinRate">0%</b></div>
+        </div>
+      </div>
+
+      <div class="section-title">Distribución por símbolo</div>
+      <div class="chart-card">
+        <h3>¿Dónde está tu actividad?</h3>
+        <div class="hint" id="symbolHint">Compara símbolos por número de operaciones, volumen operado o ganancia total.</div>
+        <div class="tabs">
+          <button data-metric="count" class="active">Transacciones</button>
+          <button data-metric="volume">Volumen</button>
+          <button data-metric="profit">Ganancia</button>
+        </div>
+        <div class="chart-wrap" style="height:270px;"><canvas id="symbolChart"></canvas></div>
+      </div>
+
+      <div class="section-title">Eficiencia por día</div>
+      <div class="chart-card">
+        <h3>Rentabilidad diaria sobre capital (%)</h3>
+        <div class="hint">Ganancia del día ÷ capital × 100. Permite comparar días con pocas operaciones grandes contra días con muchas operaciones pequeñas.</div>
+        <div class="chart-wrap" style="height:300px;"><canvas id="trendChart"></canvas></div>
+      </div>
+
+    </div>
+
+    <div id="view-detalles" class="view-panel" style="display:none;">
+      <div class="section-title">Detalle de operaciones</div>
+      <div class="table-card">
+        <table class="trades">
+          <thead><tr>
+            <th data-key="date">Fecha</th>
+            <th data-key="symbol">Símbolo</th>
+            <th data-key="type">Tipo</th>
+            <th data-key="volume">Volumen</th>
+            <th data-key="profit">Beneficio</th>
+          </tr></thead>
+          <tbody id="tradesBody"></tbody>
+        </table>
+        <div class="pager">
+          <span id="pagerInfo"></span>
+          <span>
+            <button id="pagerPrev">◀</button>
+            <button id="pagerNext">▶</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-dia" class="view-panel" style="display:none;">
+      <div class="section-title">Detalle diario</div>
+      <div class="chart-card" id="dayEmptyState">
+        <p style="color:var(--text-dim); font-size:13px; margin:0;">Haz clic en un día del calendario, en la pestaña "Resumen general", para ver el detalle aquí.</p>
+      </div>
+      <div id="dayContent" style="display:none;">
+        <div class="cal-card" style="margin-bottom:20px;">
+          <div class="month-label" id="dayLabel" style="text-transform:none;">—</div>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">Total de operaciones</div>
+            <div class="kpi-value" id="dayTotal">0</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Operaciones ganadas</div>
+            <div class="kpi-value pos" id="dayWins">0</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Operaciones perdidas</div>
+            <div class="kpi-value neg" id="dayLosses">0</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Win rate del día</div>
+            <div class="kpi-value" id="dayWinRate">0%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Resultado neto</div>
+            <div class="kpi-value" id="dayNet">$0.00</div>
+            <div class="kpi-foot" id="dayNetFoot">&nbsp;</div>
+          </div>
+        </div>
+
+        <div class="section-title">Ganado vs. perdido</div>
+        <div class="chart-card">
+          <div class="hint">Suma de operaciones ganadoras contra suma de operaciones perdedoras ese día.</div>
+          <div class="chart-wrap" style="height:240px; max-width:340px; margin:0 auto;"><canvas id="dayChart"></canvas></div>
+        </div>
+
+        <div class="section-title">Operaciones del día</div>
+        <div class="table-card">
+          <table class="trades">
+            <thead><tr>
+              <th>Hora</th><th>Símbolo</th><th>Tipo</th><th>Volumen</th><th>Beneficio</th>
+            </tr></thead>
+            <tbody id="dayTradesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>Panel generado localmente en tu navegador. Ningún dato se envía a ningún servidor.</footer>
+</div>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
