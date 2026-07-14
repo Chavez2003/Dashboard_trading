@@ -106,17 +106,64 @@
   .view-tabs button.active{ color:var(--gold); border-color:var(--gold); background:transparent; }
 
   /* KPIs */
-  .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:12px; }
+  .kpi-row{ display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+  @media (max-width:720px){ .kpi-row{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:460px){ .kpi-row{ grid-template-columns:1fr; } }
   .kpi-card{
     background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px;
     position:relative; overflow:hidden;
   }
   .kpi-card::before{ content:""; position:absolute; top:0; left:0; width:3px; height:100%; background:var(--gold); opacity:.6; }
+  .kpi-card.kpi-pos-accent::before{ background:var(--pos); opacity:.8; }
+  .kpi-card.kpi-neg-accent::before{ background:var(--neg); opacity:.8; }
   .kpi-label{ font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
   .kpi-value{ font-family:var(--mono); font-size:24px; font-weight:600; font-variant-numeric:tabular-nums; }
   .kpi-value.pos{ color:var(--pos); }
   .kpi-value.neg{ color:var(--neg); }
   .kpi-foot{ font-size:11.5px; color:var(--text-dim); margin-top:4px; }
+
+  /* Forecast */
+  .forecast-card{
+    margin-top:0; padding:20px 22px; border-radius:var(--radius);
+    background:linear-gradient(135deg, rgba(201,162,39,.10), rgba(201,162,39,.02));
+    border:1px solid rgba(201,162,39,.35);
+    display:flex; flex-direction:column; gap:14px;
+  }
+  .forecast-label{ font-size:11px; color:var(--gold); text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+  .forecast-main{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .forecast-value{ font-family:var(--mono); font-size:32px; font-weight:700; }
+  .forecast-value.pos{ color:var(--pos); }
+  .forecast-value.neg{ color:var(--neg); }
+  .forecast-sub{ font-size:12.5px; color:var(--text-dim); }
+  .forecast-note{ font-size:11.5px; color:var(--text-dim); width:100%; line-height:1.5; border-top:1px solid rgba(201,162,39,.2); padding-top:10px; margin-top:2px; }
+  .progress-block{ width:100%; display:flex; flex-direction:column; gap:10px; margin:4px 0 2px; }
+  .progress-row{ width:100%; }
+  .progress-label{ display:flex; justify-content:space-between; font-size:11.5px; color:var(--text-dim); margin-bottom:5px; font-family:var(--mono); }
+  .progress-track{ width:100%; height:8px; border-radius:5px; background:var(--bg-card-2); overflow:hidden; }
+  .progress-fill{ height:100%; border-radius:5px; transition:width .3s; }
+  .progress-fill-gold{ background:var(--gold); }
+  .progress-fill-pos{ background:var(--pos); }
+  .progress-fill-neg{ background:var(--neg); }
+  .progress-pace{ font-size:12px; color:var(--text); font-weight:600; margin-top:2px; }
+
+  .pie-legend{ display:flex; flex-direction:column; gap:10px; margin-top:18px; }
+  .pie-legend-item{
+    display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:8px;
+    background:var(--bg-card-2); border:1px solid var(--line);
+  }
+  .pie-dot{ width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+  .pie-legend-label{ font-size:14px; font-weight:600; color:var(--text); flex:1; }
+  .pie-legend-value{ font-family:var(--mono); font-size:15px; font-weight:700; }
+  .pie-legend-value.pos{ color:var(--pos); }
+  .pie-legend-value.neg{ color:var(--neg); }
+  .pie-legend-pct{ font-family:var(--mono); font-size:12.5px; color:var(--text-dim); min-width:38px; text-align:right; }
+  .pie-formula{
+    margin-top:12px; padding:12px 14px; border-radius:8px; background:var(--gold-soft); border:1px solid rgba(201,162,39,.3);
+    font-family:var(--mono); font-size:14px; text-align:center; font-weight:600; letter-spacing:.01em;
+  }
+  .pie-formula .pos{ color:var(--pos); }
+  .pie-formula .neg{ color:var(--neg); }
+  .pie-formula .eq{ color:var(--text); }
 
   /* Calendar */
   .cal-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; }
@@ -238,6 +285,18 @@
           <div class="kpi-value" id="kpiProfit">$0.00</div>
           <div class="kpi-foot" id="kpiProfitFoot">&nbsp;</div>
         </div>
+        <div class="kpi-card kpi-pos-accent">
+          <div class="kpi-label">Total ganado</div>
+          <div class="kpi-value pos" id="kpiWon">$0.00</div>
+          <div class="kpi-foot" id="kpiWonFoot">&nbsp;</div>
+        </div>
+        <div class="kpi-card kpi-neg-accent">
+          <div class="kpi-label">Total perdido</div>
+          <div class="kpi-value neg" id="kpiLost">$0.00</div>
+          <div class="kpi-foot" id="kpiLostFoot">&nbsp;</div>
+        </div>
+      </div>
+      <div class="kpi-row" style="margin-top:12px;">
         <div class="kpi-card">
           <div class="kpi-label">Win rate general</div>
           <div class="kpi-value" id="kpiWinRate">0%</div>
@@ -252,6 +311,33 @@
           <div class="kpi-label">Operaciones cerradas</div>
           <div class="kpi-value" id="kpiTrades">0</div>
           <div class="kpi-foot" id="kpiTradesFoot">&nbsp;</div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top:20px;">
+        <div class="chart-card">
+          <h3>Ganado vs. perdido</h3>
+          <div class="hint">Tus tres números clave, uno junto al otro: lo que ganaste, lo que perdiste, y lo que te queda neto.</div>
+          <div class="chart-wrap" style="height:220px;"><canvas id="winLossBar"></canvas></div>
+        </div>
+        <div class="forecast-card" id="forecastCard" style="display:none;">
+          <div class="forecast-label">Pronóstico de cierre de mes</div>
+          <div class="forecast-main">
+            <div class="forecast-value" id="forecastValue">$0.00</div>
+            <div class="forecast-sub" id="forecastSub">&nbsp;</div>
+          </div>
+          <div class="progress-block">
+            <div class="progress-row">
+              <div class="progress-label"><span>Días transcurridos del mes</span><span id="progDaysPct">0%</span></div>
+              <div class="progress-track"><div class="progress-fill progress-fill-gold" id="progDaysBar"></div></div>
+            </div>
+            <div class="progress-row">
+              <div class="progress-label"><span>Meta del pronóstico alcanzada</span><span id="progGoalPct">0%</span></div>
+              <div class="progress-track"><div class="progress-fill progress-fill-pos" id="progGoalBar"></div></div>
+            </div>
+            <div class="progress-pace" id="progPace">&nbsp;</div>
+          </div>
+          <div class="forecast-note" id="forecastNote">&nbsp;</div>
         </div>
       </div>
 

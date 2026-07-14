@@ -2,7 +2,7 @@
 let TRADES = [];        // {date: Date, dateStr, symbol, type, volume, profit}
 let capital = 100;
 let calYear, calMonth;  // 0-indexed month
-let symbolChart, trendChart, dayChart;
+let symbolChart, trendChart, dayChart, winLossChart;
 let selectedDay = null;
 let currentView = 'resumen';
 let symbolMetric = 'count';
@@ -221,6 +221,19 @@ function makeLabelPlugin(type, formatter){
             ctx.textAlign = 'center';
             ctx.textBaseline = raw >= 0 ? 'bottom' : 'top';
             ctx.fillText(text, el.x, el.y + (raw >= 0 ? -8 : 8));
+          } else if (type === 'doughnut'){
+            const mid = (el.startAngle + el.endAngle) / 2;
+            const r = (el.innerRadius + el.outerRadius) / 2;
+            const lx = el.x + Math.cos(mid) * r;
+            const ly = el.y + Math.sin(mid) * r;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const prevFill = ctx.fillStyle, prevFont = ctx.font;
+            ctx.fillStyle = '#0B0D10';
+            ctx.font = '700 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+            const lines = String(text).split('\n');
+            lines.forEach((line, li) => ctx.fillText(line, lx, ly + (li - (lines.length-1)/2) * 14));
+            ctx.fillStyle = prevFill; ctx.font = prevFont;
           }
         });
       });
@@ -247,6 +260,13 @@ function renderAll(){
   document.getElementById('kpiWinRate').textContent = winRate.toFixed(1) + '%';
   document.getElementById('kpiWinRateFoot').textContent = agg.wins + ' ganadoras / ' + (agg.total-agg.wins) + ' perdedoras';
 
+  let totalWon = 0, totalLost = 0;
+  TRADES.forEach(t => { const p = pv(t); if (p>0) totalWon += p; else if (p<0) totalLost += Math.abs(p); });
+  document.getElementById('kpiWon').textContent = fmtMoney(totalWon);
+  document.getElementById('kpiWonFoot').textContent = agg.wins + ' operaciones ganadoras';
+  document.getElementById('kpiLost').textContent = fmtMoney(-totalLost);
+  document.getElementById('kpiLostFoot').textContent = (agg.total-agg.wins) + ' operaciones perdedoras';
+
   const roiEl = document.getElementById('kpiRoi');
   roiEl.textContent = fmtPct(roi);
   roiEl.className = 'kpi-value ' + (roi>=0?'pos':'neg');
@@ -260,7 +280,113 @@ function renderAll(){
   renderSymbolChart(agg);
   renderTrendChart(agg);
   renderTable();
+  renderWinLossBar(totalWon, totalLost);
+  renderForecast();
   if (selectedDay) renderDayDetail(selectedDay);
+}
+
+/* --- Win vs Loss pie --- */
+function centerTextPlugin(bigText, smallText, color){
+  return {
+    id: 'centerText_' + Math.random().toString(36).slice(2),
+    afterDraw(chart){
+      const { ctx, chartArea } = chart;
+      const cx = (chartArea.left + chartArea.right) / 2;
+      const cy = (chartArea.top + chartArea.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = color;
+      ctx.font = '700 28px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillText(bigText, cx, cy - 9);
+      ctx.fillStyle = '#8A8F98';
+      ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillText(smallText, cx, cy + 15);
+      ctx.restore();
+    }
+  };
+}
+
+function renderWinLossBar(totalWon, totalLost){
+  const canvas = document.getElementById('winLossBar');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (winLossChart) winLossChart.destroy();
+  const net = totalWon - totalLost;
+
+  const labels = ['Ganado', 'Perdido', 'Neto'];
+  const data = [totalWon, -totalLost, net];
+  const colors = ['#3FB27F', '#E5484D', net>=0 ? '#C9A227' : '#E5484D'];
+  const fmt = (raw) => fmtMoney(raw);
+
+  winLossChart = new Chart(ctx, {
+    type:'bar',
+    data:{ labels, datasets:[{ data, backgroundColor:colors, borderRadius:6, barThickness:28 }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false, animation:{duration:250},
+      layout:{ padding:{ left:60, right:60 } },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=> fmtMoney(c.raw) } } },
+      scales:{
+        x:{ grid:{color:'#262B33'}, ticks:{color:'#8A8F98', font:{family:'monospace', size:11}} },
+        y:{ grid:{display:false}, ticks:{color:'#EDEDED', font:{size:13, weight:600}} }
+      }
+    },
+    plugins:[ makeLabelPlugin('hbar', fmt) ]
+  });
+}
+
+/* --- Forecast --- */
+function renderForecast(){
+  const card = document.getElementById('forecastCard');
+  if (!TRADES.length){ card.style.display='none'; return; }
+
+  const last = TRADES.reduce((a,b)=> a.date>b.date?a:b);
+  const fy = last.date.getFullYear(), fm = last.date.getMonth();
+  const prefix = fy + '-' + String(fm+1).padStart(2,'0');
+
+  const byDay = {};
+  TRADES.forEach(t => {
+    if (!t.dateStr.startsWith(prefix)) return;
+    const day = +t.dateStr.split('-')[2];
+    byDay[day] = (byDay[day]||0) + pv(t);
+  });
+  const dayNumbers = Object.keys(byDay).map(Number);
+  if (!dayNumbers.length){ card.style.display='none'; return; }
+
+  const daysElapsed = Math.max(...dayNumbers);
+  const monthProfitToDate = Object.values(byDay).reduce((a,b)=>a+b,0);
+  const totalDaysInMonth = new Date(fy, fm+1, 0).getDate();
+  const dailyAvg = monthProfitToDate / daysElapsed;
+  const forecast = dailyAvg * totalDaysInMonth;
+
+  card.style.display = 'flex';
+  const valueEl = document.getElementById('forecastValue');
+  valueEl.textContent = fmtMoney(forecast);
+  valueEl.className = 'forecast-value ' + (forecast>=0?'pos':'neg');
+  document.getElementById('forecastSub').textContent =
+    `si mantienes tu ritmo actual en ${MONTHS[fm]} ${fy}` + (capital>0 ? ' · ' + fmtPct(forecast/capital*100) + ' sobre capital' : '');
+
+  let note = `Cálculo: ${fmtMoney(monthProfitToDate)} acumulado ÷ ${daysElapsed} días transcurridos de ${MONTHS[fm]} = promedio de ${fmtMoney(dailyAvg)}/día. Ese promedio × ${totalDaysInMonth} días del mes = el pronóstico. Es una proyección lineal simple sobre tu historial, no una garantía — tu resultado real puede variar.`;
+  if (daysElapsed < 5) note += ` Con solo ${daysElapsed} día(s) de datos este mes, tómalo como referencia aproximada, no como algo preciso.`;
+  document.getElementById('forecastNote').textContent = note;
+
+  const daysPct = Math.min(100, daysElapsed/totalDaysInMonth*100);
+  const goalPct = forecast !== 0 ? Math.max(0, Math.min(100, monthProfitToDate/forecast*100)) : 0;
+  document.getElementById('progDaysPct').textContent = daysPct.toFixed(0) + '%';
+  document.getElementById('progDaysBar').style.width = daysPct + '%';
+  document.getElementById('progGoalPct').textContent = goalPct.toFixed(0) + '%';
+  const goalBar = document.getElementById('progGoalBar');
+  goalBar.style.width = goalPct + '%';
+  goalBar.className = 'progress-fill ' + (monthProfitToDate>=0 ? 'progress-fill-pos' : 'progress-fill-neg');
+
+  const paceEl = document.getElementById('progPace');
+  if (forecast > 0 && monthProfitToDate >= 0){
+    const diff = goalPct - daysPct;
+    if (Math.abs(diff) < 3) paceEl.textContent = '⏺ Vas justo al ritmo de tu pronóstico.';
+    else if (diff > 0) paceEl.textContent = `▲ Vas ${diff.toFixed(0)} puntos adelante de tu ritmo esperado.`;
+    else paceEl.textContent = `▼ Vas ${Math.abs(diff).toFixed(0)} puntos atrás de tu ritmo esperado.`;
+  } else {
+    paceEl.textContent = '';
+  }
 }
 
 /* --- Calendar --- */
@@ -317,6 +443,9 @@ function renderSymbolChart(agg){
   document.getElementById('symbolHint').textContent = hints[symbolMetric];
 
   const rows = Object.entries(agg.bySymbol).map(([symbol,v]) => ({symbol, ...v}));
+  if (rows.length === 1){
+    document.getElementById('symbolHint').textContent += ' Ahora mismo solo operas ' + rows[0].symbol + ' — esta gráfica cobra valor comparativo en cuanto agregues otro símbolo.';
+  }
   rows.sort((a,b) => b[symbolMetric] - a[symbolMetric]);
   const top = rows.slice(0,10);
   const labels = top.map(r=>r.symbol);
