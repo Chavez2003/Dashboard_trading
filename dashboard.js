@@ -1,6 +1,7 @@
 /* ---------------- State ---------------- */
 let TRADES = [];        // {date: Date, dateStr, symbol, type, volume, profit}
 let capital = 100;
+let goal = 800;
 let calYear, calMonth;  // 0-indexed month
 let symbolChart, trendChart, dayChart, winLossChart;
 let selectedDay = null;
@@ -369,8 +370,22 @@ function renderForecast(){
   if (daysElapsed < 5) note += ` Con solo ${daysElapsed} día(s) de datos este mes, tómalo como referencia aproximada, no como algo preciso.`;
   document.getElementById('forecastNote').textContent = note;
 
+  const goalStatusEl = document.getElementById('goalStatus');
+  if (goal > 0){
+    const diffVsGoal = forecast - goal;
+    if (diffVsGoal >= 0){
+      goalStatusEl.textContent = `▲ Tu pronóstico supera tu meta por ${fmtMoney(diffVsGoal)}`;
+      goalStatusEl.className = 'goal-status pos';
+    } else {
+      goalStatusEl.textContent = `▼ Tu pronóstico queda ${fmtMoney(Math.abs(diffVsGoal))} por debajo de tu meta`;
+      goalStatusEl.className = 'goal-status neg';
+    }
+  } else {
+    goalStatusEl.textContent = '';
+  }
+
   const daysPct = Math.min(100, daysElapsed/totalDaysInMonth*100);
-  const goalPct = forecast !== 0 ? Math.max(0, Math.min(100, monthProfitToDate/forecast*100)) : 0;
+  const goalPct = goal > 0 ? Math.max(0, Math.min(100, monthProfitToDate/goal*100)) : 0;
   document.getElementById('progDaysPct').textContent = daysPct.toFixed(0) + '%';
   document.getElementById('progDaysBar').style.width = daysPct + '%';
   document.getElementById('progGoalPct').textContent = goalPct.toFixed(0) + '%';
@@ -379,7 +394,7 @@ function renderForecast(){
   goalBar.className = 'progress-fill ' + (monthProfitToDate>=0 ? 'progress-fill-pos' : 'progress-fill-neg');
 
   const paceEl = document.getElementById('progPace');
-  if (forecast > 0 && monthProfitToDate >= 0){
+  if (goal > 0){
     const diff = goalPct - daysPct;
     if (Math.abs(diff) < 3) paceEl.textContent = '⏺ Vas justo al ritmo de tu pronóstico.';
     else if (diff > 0) paceEl.textContent = `▲ Vas ${diff.toFixed(0)} puntos adelante de tu ritmo esperado.`;
@@ -614,7 +629,7 @@ async function saveToStorage(){
   try {
     await window.storage.set(STORAGE_KEY, JSON.stringify({
       trades: TRADES.map(t=>({...t, date:t.date.toISOString()})),
-      capital
+      capital, goal
     }), false);
   } catch(e){ console.error('storage set failed', e); }
 }
@@ -625,7 +640,9 @@ async function loadFromStorage(){
       const parsed = JSON.parse(res.value);
       TRADES = parsed.trades.map(t => ({...t, date:new Date(t.date)}));
       capital = parsed.capital || capital;
+      goal = (parsed.goal !== undefined && parsed.goal !== null) ? parsed.goal : goal;
       document.getElementById('capitalInput').value = capital;
+      document.getElementById('goalInput').value = goal;
       const last = TRADES.length ? TRADES.reduce((a,b)=> a.date>b.date?a:b) : null;
       calYear = last ? last.date.getFullYear() : new Date().getFullYear();
       calMonth = last ? last.date.getMonth() : new Date().getMonth();
@@ -671,6 +688,13 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 document.getElementById('capitalInput').addEventListener('input', (e) => {
   const v = parseFloat(e.target.value);
   capital = isFinite(v) ? v : 0;
+  if (TRADES.length) renderAll();
+  saveToStorage();
+});
+
+document.getElementById('goalInput').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  goal = isFinite(v) ? v : 0;
   if (TRADES.length) renderAll();
   saveToStorage();
 });
@@ -721,5 +745,6 @@ document.getElementById('pagerNext').addEventListener('click', () => {
   const now = new Date();
   calYear = now.getFullYear(); calMonth = now.getMonth();
   document.getElementById('capitalInput').value = capital;
+  document.getElementById('goalInput').value = goal;
   loadFromStorage();
 })();

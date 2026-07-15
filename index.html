@@ -131,6 +131,11 @@
   }
   .forecast-label{ font-size:11px; color:var(--gold); text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
   .forecast-main{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .goal-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .goal-row label{ font-size:12px; color:var(--text-dim); }
+  .goal-status{ font-size:12px; font-weight:600; }
+  .goal-status.pos{ color:var(--pos); }
+  .goal-status.neg{ color:var(--neg); }
   .forecast-value{ font-family:var(--mono); font-size:32px; font-weight:700; }
   .forecast-value.pos{ color:var(--pos); }
   .forecast-value.neg{ color:var(--neg); }
@@ -326,13 +331,21 @@
             <div class="forecast-value" id="forecastValue">$0.00</div>
             <div class="forecast-sub" id="forecastSub">&nbsp;</div>
           </div>
+          <div class="goal-row">
+            <label for="goalInput">Meta mensual</label>
+            <span class="capital-input-wrap">
+              <span class="dollar-prefix">$</span>
+              <input type="number" id="goalInput" value="800" step="1" min="0">
+            </span>
+            <span class="goal-status" id="goalStatus">&nbsp;</span>
+          </div>
           <div class="progress-block">
             <div class="progress-row">
               <div class="progress-label"><span>Días transcurridos del mes</span><span id="progDaysPct">0%</span></div>
               <div class="progress-track"><div class="progress-fill progress-fill-gold" id="progDaysBar"></div></div>
             </div>
             <div class="progress-row">
-              <div class="progress-label"><span>Meta del pronóstico alcanzada</span><span id="progGoalPct">0%</span></div>
+              <div class="progress-label"><span>Meta mensual alcanzada</span><span id="progGoalPct">0%</span></div>
               <div class="progress-track"><div class="progress-fill progress-fill-pos" id="progGoalBar"></div></div>
             </div>
             <div class="progress-pace" id="progPace">&nbsp;</div>
