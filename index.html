@@ -105,6 +105,13 @@
   .view-tabs button:hover{ color:var(--text); border-color:var(--line); }
   .view-tabs button.active{ color:var(--gold); border-color:var(--gold); background:transparent; }
 
+  .date-filter{ display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; margin-bottom:4px; }
+  .date-filter button{
+    padding:7px 14px; font-size:12.5px; border-radius:999px; background:var(--bg-card); border:1px solid var(--line); color:var(--text-dim);
+  }
+  .date-filter button:hover{ border-color:var(--gold); color:var(--text); }
+  .date-filter button.active{ background:var(--gold); border-color:var(--gold); color:#141414; font-weight:700; }
+
   /* KPIs */
   .kpi-row{ display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
   @media (max-width:720px){ .kpi-row{ grid-template-columns:repeat(2,1fr); } }
@@ -162,6 +169,20 @@
   .pie-legend-value.pos{ color:var(--pos); }
   .pie-legend-value.neg{ color:var(--neg); }
   .pie-legend-pct{ font-family:var(--mono); font-size:12.5px; color:var(--text-dim); min-width:38px; text-align:right; }
+
+  .lot-card{
+    background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:18px;
+    display:flex; flex-direction:column;
+  }
+  .lot-card h3{ margin:0 0 4px; font-size:13.5px; font-weight:600; }
+  .lot-value{ font-family:var(--mono); font-size:40px; font-weight:700; color:var(--gold); margin-top:18px; }
+  .lot-foot{ font-size:12px; color:var(--text-dim); margin-top:2px; margin-bottom:auto; }
+  .lot-breakdown{ display:flex; flex-direction:column; gap:8px; margin-top:18px; }
+  .lot-breakdown-item{
+    display:flex; justify-content:space-between; font-size:12.5px; padding:8px 12px; border-radius:8px;
+    background:var(--bg-card-2); border:1px solid var(--line); color:var(--text-dim);
+  }
+  .lot-breakdown-item b{ color:var(--text); font-family:var(--mono); font-weight:600; }
   .pie-formula{
     margin-top:12px; padding:12px 14px; border-radius:8px; background:var(--gold-soft); border:1px solid rgba(201,162,39,.3);
     font-family:var(--mono); font-size:14px; text-align:center; font-weight:600; letter-spacing:.01em;
@@ -241,7 +262,7 @@
         <label for="capitalInput">Capital (Balance + Crédito)</label>
         <span class="capital-input-wrap">
           <span class="dollar-prefix">$</span>
-          <input type="number" id="capitalInput" value="100" step="0.01" min="0">
+          <input type="number" id="capitalInput" value="1100" step="0.01" min="0">
         </span>
         <span style="font-size:11px;color:var(--text-dim);">usa el "Balance" de la barra de estado del terminal, no el total del panel Historial</span>
       </div>
@@ -283,7 +304,14 @@
 
     <div id="view-resumen" class="view-panel">
 
-      <div class="section-title">Resumen</div>
+      <div class="date-filter" id="dateFilterTabs">
+        <button data-range="month" class="active">Este mes</button>
+        <button data-range="3m">Últimos 3 meses</button>
+        <button data-range="6m">Últimos 6 meses</button>
+        <button data-range="all">Histórico</button>
+      </div>
+
+      <div class="section-title">Resumen · <span id="resumenPeriodLabel">—</span></div>
       <div class="kpi-row">
         <div class="kpi-card">
           <div class="kpi-label">Ganancia total</div>
@@ -303,7 +331,7 @@
       </div>
       <div class="kpi-row" style="margin-top:12px;">
         <div class="kpi-card">
-          <div class="kpi-label">Win rate general</div>
+          <div class="kpi-label">Win rate general (por operación)</div>
           <div class="kpi-value" id="kpiWinRate">0%</div>
           <div class="kpi-foot" id="kpiWinRateFoot">&nbsp;</div>
         </div>
@@ -321,9 +349,10 @@
 
       <div class="two-col" style="margin-top:20px;">
         <div class="chart-card">
-          <h3>Ganado vs. perdido</h3>
+          <h3>Ganado vs. Perdido</h3>
           <div class="hint">Tus tres números clave, uno junto al otro: lo que ganaste, lo que perdiste, y lo que te queda neto.</div>
-          <div class="chart-wrap" style="height:220px;"><canvas id="winLossBar"></canvas></div>
+          <div class="chart-wrap" style="height:190px;"><canvas id="winLossBar"></canvas></div>
+          <div class="pie-legend" id="winLossLegend"></div>
         </div>
         <div class="forecast-card" id="forecastCard" style="display:none;">
           <div class="forecast-label">Pronóstico de cierre de mes</div>
@@ -354,6 +383,13 @@
         </div>
       </div>
 
+      <div class="section-title">Eficiencia por día</div>
+      <div class="chart-card">
+        <h3>Rentabilidad diaria sobre capital (%)</h3>
+        <div class="hint">Ganancia del día ÷ capital × 100. Permite comparar días con pocas operaciones grandes contra días con muchas operaciones pequeñas.</div>
+        <div class="chart-wrap" style="height:300px;"><canvas id="trendChart"></canvas></div>
+      </div>
+
       <div class="section-title">Calendario diario</div>
       <div class="cal-card">
         <div class="cal-head">
@@ -370,27 +406,25 @@
           <div>Resultado del mes <br><b id="calMonthProfit">$0.00</b></div>
           <div>Días ganadores <br><b id="calWinDays">0</b></div>
           <div>Días perdedores <br><b id="calLossDays">0</b></div>
-          <div>Win rate del mes <br><b id="calMonthWinRate">0%</b></div>
+          <div>Win rate del mes (por días) <br><b id="calMonthWinRate">0%</b></div>
         </div>
       </div>
 
-      <div class="section-title">Distribución por símbolo</div>
-      <div class="chart-card">
-        <h3>¿Dónde está tu actividad?</h3>
-        <div class="hint" id="symbolHint">Compara símbolos por número de operaciones, volumen operado o ganancia total.</div>
-        <div class="tabs">
-          <button data-metric="count" class="active">Transacciones</button>
-          <button data-metric="volume">Volumen</button>
-          <button data-metric="profit">Ganancia</button>
+      <div class="section-title">Operaciones y lotaje</div>
+      <div class="two-col">
+        <div class="chart-card">
+          <h3>Transacciones ganadas vs. perdidas</h3>
+          <div class="hint" id="symbolHint">De tus operaciones por símbolo, cuántas cerraron ganadoras y cuántas perdedoras (número de operaciones, no montos).</div>
+          <div class="chart-wrap" id="symbolChartWrap" style="height:150px;"><canvas id="symbolChart"></canvas></div>
+          <div class="pie-legend" id="symbolLegend"></div>
         </div>
-        <div class="chart-wrap" style="height:270px;"><canvas id="symbolChart"></canvas></div>
-      </div>
-
-      <div class="section-title">Eficiencia por día</div>
-      <div class="chart-card">
-        <h3>Rentabilidad diaria sobre capital (%)</h3>
-        <div class="hint">Ganancia del día ÷ capital × 100. Permite comparar días con pocas operaciones grandes contra días con muchas operaciones pequeñas.</div>
-        <div class="chart-wrap" style="height:300px;"><canvas id="trendChart"></canvas></div>
+        <div class="lot-card">
+          <h3>Lotaje promedio</h3>
+          <div class="hint">Tamaño de posición promedio por operación — para saber si estás operando con lotaje alto o bajo.</div>
+          <div class="lot-value" id="lotAvgValue">0.00</div>
+          <div class="lot-foot" id="lotAvgFoot">lotes por operación</div>
+          <div class="lot-breakdown" id="lotBreakdown"></div>
+        </div>
       </div>
 
     </div>
@@ -452,7 +486,7 @@
           </div>
         </div>
 
-        <div class="section-title">Ganado vs. perdido</div>
+        <div class="section-title">Ganado vs. Perdido</div>
         <div class="chart-card">
           <div class="hint">Suma de operaciones ganadoras contra suma de operaciones perdedoras ese día.</div>
           <div class="chart-wrap" style="height:240px; max-width:340px; margin:0 auto;"><canvas id="dayChart"></canvas></div>

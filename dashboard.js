@@ -1,12 +1,13 @@
 /* ---------------- State ---------------- */
 let TRADES = [];        // {date: Date, dateStr, symbol, type, volume, profit}
-let capital = 100;
+let FILTERED_TRADES = []; // TRADES narrowed by the active date-range filter
+let capital = 1100;
 let goal = 800;
 let calYear, calMonth;  // 0-indexed month
+let dateFilter = 'month'; // 'month' | '3m' | '6m' | 'all'
 let symbolChart, trendChart, dayChart, winLossChart;
 let selectedDay = null;
 let currentView = 'resumen';
-let symbolMetric = 'count';
 let profitMode = 'net'; // 'net' includes commission+swap (matches MT5's own Beneficio), 'gross' excludes them
 function pv(t){ return profitMode === 'gross' ? t.grossProfit : t.profit; }
 let sortKey = 'date', sortDir = -1;
@@ -189,10 +190,12 @@ function aggregate(trades){
     byDate[t.dateStr].count += 1;
     if (p > 0) byDate[t.dateStr].wins += 1;
 
-    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { count:0, volume:0, profit:0 };
+    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { count:0, volume:0, profit:0, wins:0, losses:0 };
     bySymbol[t.symbol].count += 1;
     bySymbol[t.symbol].volume += t.volume;
     bySymbol[t.symbol].profit += p;
+    if (p > 0) bySymbol[t.symbol].wins += 1;
+    else if (p < 0) bySymbol[t.symbol].losses += 1;
   });
   return { byDate, bySymbol, totalProfit, wins, total: trades.length };
 }
@@ -215,9 +218,29 @@ function makeLabelPlugin(type, formatter){
           if (text === null || text === undefined || text === '') return;
           if (type === 'hbar'){
             const isNeg = raw < 0;
-            ctx.textAlign = isNeg ? 'right' : 'left';
+            const areaLeft = chart.chartArea.left, areaRight = chart.chartArea.right;
+            const textWidth = ctx.measureText(text).width;
             ctx.textBaseline = 'middle';
-            ctx.fillText(text, el.x + (isNeg ? -6 : 6), el.y);
+            if (isNeg){
+              const outsideX = el.x - 6;
+              if (outsideX - textWidth < areaLeft){
+                // not enough room to the left of the bar -> draw inside the bar's end, white text
+                ctx.textAlign = 'left';
+                ctx.fillText(text, el.x + 6, el.y);
+              } else {
+                ctx.textAlign = 'right';
+                ctx.fillText(text, outsideX, el.y);
+              }
+            } else {
+              const outsideX = el.x + 6;
+              if (outsideX + textWidth > areaRight){
+                ctx.textAlign = 'right';
+                ctx.fillText(text, el.x - 6, el.y);
+              } else {
+                ctx.textAlign = 'left';
+                ctx.fillText(text, outsideX, el.y);
+              }
+            }
           } else if (type === 'line'){
             ctx.textAlign = 'center';
             ctx.textBaseline = raw >= 0 ? 'bottom' : 'top';
@@ -244,12 +267,27 @@ function makeLabelPlugin(type, formatter){
 }
 
 /* ---------------- Rendering ---------------- */
+function getFilteredTrades(){
+  if (!TRADES.length || dateFilter === 'all') return TRADES;
+  let monthsBack = 0;
+  if (dateFilter === '3m') monthsBack = 2;
+  else if (dateFilter === '6m') monthsBack = 5;
+  const cutoff = new Date(calYear, calMonth-monthsBack, 1);
+  const upper = new Date(calYear, calMonth+1, 1);
+  return TRADES.filter(t => t.date >= cutoff && t.date < upper);
+}
+
 function renderAll(){
   document.getElementById('emptyState').style.display = TRADES.length ? 'none' : 'block';
   document.getElementById('dashboard').style.display = TRADES.length ? 'block' : 'none';
   if (!TRADES.length) return;
 
-  const agg = aggregate(TRADES);
+  FILTERED_TRADES = getFilteredTrades();
+
+  const periodLabels = { month: MONTHS[calMonth]+' '+calYear, '3m':'últimos 3 meses (hasta '+MONTHS[calMonth]+')', '6m':'últimos 6 meses (hasta '+MONTHS[calMonth]+')', all:'histórico completo' };
+  document.getElementById('resumenPeriodLabel').textContent = periodLabels[dateFilter];
+
+  const agg = aggregate(FILTERED_TRADES);
   const winRate = agg.total ? (agg.wins/agg.total*100) : 0;
   const roi = capital > 0 ? (agg.totalProfit/capital*100) : 0;
 
@@ -262,7 +300,7 @@ function renderAll(){
   document.getElementById('kpiWinRateFoot').textContent = agg.wins + ' ganadoras / ' + (agg.total-agg.wins) + ' perdedoras';
 
   let totalWon = 0, totalLost = 0;
-  TRADES.forEach(t => { const p = pv(t); if (p>0) totalWon += p; else if (p<0) totalLost += Math.abs(p); });
+  FILTERED_TRADES.forEach(t => { const p = pv(t); if (p>0) totalWon += p; else if (p<0) totalLost += Math.abs(p); });
   document.getElementById('kpiWon').textContent = fmtMoney(totalWon);
   document.getElementById('kpiWonFoot').textContent = agg.wins + ' operaciones ganadoras';
   document.getElementById('kpiLost').textContent = fmtMoney(-totalLost);
@@ -277,8 +315,9 @@ function renderAll(){
   const dates = Object.keys(agg.byDate);
   document.getElementById('kpiTradesFoot').textContent = dates.length ? (dates.length + ' días con actividad') : '';
 
-  renderCalendar(agg);
-  renderSymbolChart(agg);
+  renderCalendar(aggregate(TRADES));
+  renderSymbolWinLoss(agg);
+  renderLotCard(FILTERED_TRADES);
   renderTrendChart(agg);
   renderTable();
   renderWinLossBar(totalWon, totalLost);
@@ -313,26 +352,48 @@ function renderWinLossBar(totalWon, totalLost){
   const ctx = canvas.getContext('2d');
   if (winLossChart) winLossChart.destroy();
   const net = totalWon - totalLost;
+  const netColor = net>=0 ? '#C9A227' : '#E5484D';
 
   const labels = ['Ganado', 'Perdido', 'Neto'];
-  const data = [totalWon, -totalLost, net];
-  const colors = ['#3FB27F', '#E5484D', net>=0 ? '#C9A227' : '#E5484D'];
-  const fmt = (raw) => fmtMoney(raw);
+  const data = [totalWon, totalLost, Math.abs(net)];
+  const colors = ['#3FB27F', '#E5484D', netColor];
 
   winLossChart = new Chart(ctx, {
     type:'bar',
-    data:{ labels, datasets:[{ data, backgroundColor:colors, borderRadius:6, barThickness:28 }] },
+    data:{ labels, datasets:[
+      { data, backgroundColor:colors, barThickness:70, borderRadius:8, borderSkipped:false }
+    ]},
     options:{
-      indexAxis:'y', responsive:true, maintainAspectRatio:false, animation:{duration:250},
-      layout:{ padding:{ left:60, right:60 } },
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=> fmtMoney(c.raw) } } },
+      responsive:true, maintainAspectRatio:false, animation:{duration:250},
+      layout:{ padding:{ top:10 } },
+      plugins:{
+        legend:{display:false},
+        tooltip:{ callbacks:{ label:(c)=> c.dataIndex===1 ? fmtMoney(-totalLost) : (c.dataIndex===2 ? fmtMoney(net) : fmtMoney(c.raw)) } }
+      },
       scales:{
-        x:{ grid:{color:'#262B33'}, ticks:{color:'#8A8F98', font:{family:'monospace', size:11}} },
-        y:{ grid:{display:false}, ticks:{color:'#EDEDED', font:{size:13, weight:600}} }
+        x:{ grid:{display:false}, ticks:{color:'#EDEDED', font:{size:13, weight:600}} },
+        y:{ grid:{color:'#262B33'}, ticks:{color:'#8A8F98', font:{family:'monospace', size:11}} }
       }
-    },
-    plugins:[ makeLabelPlugin('hbar', fmt) ]
+    }
   });
+
+  document.getElementById('winLossLegend').innerHTML = `
+    <div class="pie-legend-item">
+      <span class="pie-dot" style="background:#3FB27F"></span>
+      <span class="pie-legend-label">Ganado</span>
+      <span class="pie-legend-value pos">${fmtMoney(totalWon)}</span>
+    </div>
+    <div class="pie-legend-item">
+      <span class="pie-dot" style="background:#E5484D"></span>
+      <span class="pie-legend-label">Perdido</span>
+      <span class="pie-legend-value neg">${fmtMoney(-totalLost)}</span>
+    </div>
+    <div class="pie-legend-item">
+      <span class="pie-dot" style="background:${net>=0?'#C9A227':'#E5484D'}"></span>
+      <span class="pie-legend-label">Neto</span>
+      <span class="pie-legend-value ${net>=0?'pos':'neg'}">${fmtMoney(net)}</span>
+    </div>
+  `;
 }
 
 /* --- Forecast --- */
@@ -449,43 +510,68 @@ function renderCalendar(agg){
 }
 
 /* --- Symbol bar chart --- */
-function renderSymbolChart(agg){
-  const hints = {
-    count: 'Número de operaciones cerradas por símbolo.',
-    volume: 'Volumen = suma de lotes operados (tamaño de las posiciones), no es un monto en dólares. Ej. 1.47 = 1.47 lotes en total.',
-    profit: 'Ganancia neta total por símbolo.'
-  };
-  document.getElementById('symbolHint').textContent = hints[symbolMetric];
-
+function renderSymbolWinLoss(agg){
   const rows = Object.entries(agg.bySymbol).map(([symbol,v]) => ({symbol, ...v}));
-  if (rows.length === 1){
-    document.getElementById('symbolHint').textContent += ' Ahora mismo solo operas ' + rows[0].symbol + ' — esta gráfica cobra valor comparativo en cuanto agregues otro símbolo.';
-  }
-  rows.sort((a,b) => b[symbolMetric] - a[symbolMetric]);
-  const top = rows.slice(0,10);
-  const labels = top.map(r=>r.symbol);
-  const data = top.map(r=>r[symbolMetric]);
-  const label = symbolMetric==='count' ? 'Operaciones' : symbolMetric==='volume' ? 'Volumen' : 'Ganancia ($)';
-  const colors = symbolMetric==='profit' ? data.map(v => v>=0 ? '#3FB27F' : '#E5484D') : data.map(()=> '#C9A227');
+  rows.sort((a,b) => b.count - a.count);
+
+  document.getElementById('symbolHint').textContent = rows.length === 1
+    ? `De tus ${rows[0].count} operaciones en ${rows[0].symbol}, cuántas cerraron ganadoras y cuántas perdedoras.`
+    : 'De tus operaciones por símbolo, cuántas cerraron ganadoras y cuántas perdedoras (número de operaciones, no montos).';
+
+  const labels = rows.map(r=>r.symbol);
+  const winsData = rows.map(r=>r.wins);
+  const lossData = rows.map(r=>r.losses);
 
   const ctx = document.getElementById('symbolChart').getContext('2d');
   if (symbolChart) symbolChart.destroy();
-  const symbolLabelFmt = (raw) => symbolMetric==='profit' ? fmtMoney(raw) : (symbolMetric==='volume' ? raw.toFixed(2) : String(raw));
+  document.getElementById('symbolChartWrap').style.height = Math.max(90, rows.length*50 + 60) + 'px';
   symbolChart = new Chart(ctx, {
     type:'bar',
-    data:{ labels, datasets:[{ label, data, backgroundColor:colors, borderRadius:4, barThickness:18 }] },
+    data:{ labels, datasets:[
+      { label:'Ganadas', data:winsData, backgroundColor:'#3FB27F', stack:'s',
+        borderRadius:{ topLeft:8, bottomLeft:8, topRight:0, bottomRight:0 }, borderSkipped:false },
+      { label:'Perdidas', data:lossData, backgroundColor:'#E5484D', stack:'s',
+        borderRadius:{ topRight:8, bottomRight:8, topLeft:0, bottomLeft:0 }, borderSkipped:false }
+    ]},
     options:{
-      indexAxis:'y', responsive:true, maintainAspectRatio:false,
-      animation:{ duration:250 },
-      layout:{ padding:{ right:36, left: symbolMetric==='profit' ? 36 : 4 } },
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: (c)=> symbolLabelFmt(c.raw) } } },
+      indexAxis:'y', responsive:true, maintainAspectRatio:false, animation:{duration:250},
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=> `${c.dataset.label}: ${c.raw}` } } },
       scales:{
-        x:{ grid:{color:'#262B33'}, ticks:{color:'#8A8F98', font:{family:'monospace', size:11}} },
-        y:{ grid:{display:false}, ticks:{color:'#EDEDED', font:{size:12}} }
+        x:{ stacked:true, grid:{color:'#262B33'}, ticks:{color:'#8A8F98', font:{family:'monospace', size:11}, precision:0} },
+        y:{ stacked:true, grid:{display:false}, ticks:{color:'#EDEDED', font:{size:12}} }
       }
-    },
-    plugins:[ makeLabelPlugin('hbar', symbolLabelFmt) ]
+    }
   });
+
+  document.getElementById('symbolLegend').innerHTML = rows.map(r => `
+    <div class="pie-legend-item">
+      <span class="pie-dot" style="background:#3FB27F"></span>
+      <span class="pie-legend-label">${r.symbol}</span>
+      <span class="pie-legend-value pos">${r.wins} ganadas</span>
+      <span class="pie-legend-value neg" style="margin-left:10px;">${r.losses} perdidas</span>
+    </div>`).join('');
+}
+
+function renderLotCard(trades){
+  if (!trades.length){
+    document.getElementById('lotAvgValue').textContent = '0.00';
+    document.getElementById('lotBreakdown').innerHTML = '';
+    return;
+  }
+  const totalVolume = trades.reduce((sum,t)=>sum+t.volume, 0);
+  const avg = totalVolume / trades.length;
+  document.getElementById('lotAvgValue').textContent = avg.toFixed(2);
+
+  const bySymbol = {};
+  trades.forEach(t => {
+    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { volume:0, count:0 };
+    bySymbol[t.symbol].volume += t.volume;
+    bySymbol[t.symbol].count += 1;
+  });
+  const rows = Object.entries(bySymbol);
+  document.getElementById('lotBreakdown').innerHTML = rows.length > 1
+    ? rows.map(([symbol,v]) => `<div class="lot-breakdown-item"><span>${symbol}</span><b>${(v.volume/v.count).toFixed(2)} lotes</b></div>`).join('')
+    : `<div class="lot-breakdown-item"><span>Volumen total operado</span><b>${totalVolume.toFixed(2)} lotes</b></div>`;
 }
 
 /* --- Trend line --- */
@@ -519,7 +605,7 @@ function renderTrendChart(agg){
 
 /* --- Table --- */
 function renderTable(){
-  const sorted = [...TRADES].sort((a,b) => {
+  const sorted = [...FILTERED_TRADES].sort((a,b) => {
     let av=a[sortKey], bv=b[sortKey];
     if (sortKey==='date'){ av=a.date.getTime(); bv=b.date.getTime(); }
     if (sortKey==='profit'){ av=pv(a); bv=pv(b); }
@@ -657,6 +743,16 @@ document.querySelectorAll('#viewTabs button').forEach(btn => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
 
+document.querySelectorAll('#dateFilterTabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#dateFilterTabs button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    dateFilter = btn.dataset.range;
+    page = 0;
+    if (TRADES.length) renderAll();
+  });
+});
+
 document.getElementById('fileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -719,15 +815,6 @@ document.getElementById('todayMonth').addEventListener('click', () => {
   renderAll();
 });
 
-document.querySelectorAll('.chart-card .tabs button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.chart-card .tabs button').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    symbolMetric = btn.dataset.metric;
-    if (TRADES.length) renderAll();
-  });
-});
-
 document.querySelectorAll('table.trades thead th[data-key]').forEach(th => {
   th.addEventListener('click', () => {
     const key = th.dataset.key;
@@ -737,7 +824,7 @@ document.querySelectorAll('table.trades thead th[data-key]').forEach(th => {
 });
 document.getElementById('pagerPrev').addEventListener('click', () => { if(page>0){page--; renderTable();} });
 document.getElementById('pagerNext').addEventListener('click', () => {
-  if ((page+1)*PAGE_SIZE < TRADES.length){ page++; renderTable(); }
+  if ((page+1)*PAGE_SIZE < FILTERED_TRADES.length){ page++; renderTable(); }
 });
 
 /* ---------------- Init ---------------- */
